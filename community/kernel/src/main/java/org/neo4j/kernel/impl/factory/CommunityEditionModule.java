@@ -21,11 +21,13 @@ package org.neo4j.kernel.impl.factory;
 
 import java.io.File;
 import java.time.Clock;
+import java.util.List;
 import java.util.function.Predicate;
 
 import org.neo4j.function.Predicates;
 import org.neo4j.graphdb.DependencyResolver;
 import org.neo4j.graphdb.factory.GraphDatabaseSettings;
+import org.neo4j.helpers.HostnamePort;
 import org.neo4j.helpers.Service;
 import org.neo4j.internal.kernel.api.exceptions.KernelException;
 import org.neo4j.io.fs.FileSystemAbstraction;
@@ -37,6 +39,7 @@ import org.neo4j.kernel.api.security.UserManagerSupplier;
 import org.neo4j.kernel.configuration.Config;
 import org.neo4j.kernel.configuration.ssl.SslPolicyLoader;
 import org.neo4j.kernel.impl.api.SchemaWriteGuard;
+import org.neo4j.kernel.impl.api.TransactionPropagator;
 import org.neo4j.kernel.impl.constraints.ConstraintSemantics;
 import org.neo4j.kernel.impl.constraints.StandardConstraintSemantics;
 import org.neo4j.kernel.impl.core.DefaultLabelIdCreator;
@@ -69,18 +72,25 @@ import org.neo4j.kernel.internal.GraphDatabaseAPI;
 import org.neo4j.kernel.internal.KernelData;
 import org.neo4j.kernel.lifecycle.LifeSupport;
 import org.neo4j.kernel.lifecycle.LifecycleStatus;
+import org.neo4j.kernel.monitoring.Monitors;
+import org.neo4j.kernel.network.HeartBeatReceiver;
+import org.neo4j.kernel.network.HeartBeatSender;
 import org.neo4j.udc.UsageData;
 
 /**
  * This implementation of {@link org.neo4j.kernel.impl.factory.EditionModule} creates the implementations of services
  * that are specific to the Community edition.
  */
-public class CommunityEditionModule extends EditionModule
-{
+public class CommunityEditionModule extends EditionModule {
     public static final String COMMUNITY_SECURITY_MODULE_ID = "community-security-module";
 
-    public CommunityEditionModule( PlatformModule platformModule )
-    {
+    public final HeartBeatReceiver receiver;
+
+    public final HeartBeatSender sender;
+
+    public final TransactionPropagator propagator;
+
+    public CommunityEditionModule(PlatformModule platformModule) {
         org.neo4j.kernel.impl.util.Dependencies dependencies = platformModule.dependencies;
         Config config = platformModule.config;
         LogService logging = platformModule.logging;
@@ -89,58 +99,113 @@ public class CommunityEditionModule extends EditionModule
         File storeDir = platformModule.storeDir;
         DataSourceManager dataSourceManager = platformModule.dataSourceManager;
         LifeSupport life = platformModule.life;
-        life.add( platformModule.dataSourceManager );
+        life.add(platformModule.dataSourceManager);
+
 
         watcherService = createFileSystemWatcherService( fileSystem, storeDir, logging,
                 platformModule.jobScheduler, config, fileWatcherFileNameFilter() );
         dependencies.satisfyDependencies( watcherService );
         life.add( watcherService );
 
-        this.accessCapability = config.get( GraphDatabaseSettings.read_only ) ? new ReadOnly() : new CanWrite();
+        Monitors monitors = platformModule.monitors;
+
+        this.accessCapability = config.get(GraphDatabaseSettings.read_only) ? new ReadOnly() : new CanWrite();
 
         GraphDatabaseFacade graphDatabaseFacade = platformModule.graphDatabaseFacade;
 
-        dependencies.satisfyDependency( SslPolicyLoader.create( config, logging.getInternalLogProvider() ) ); // for bolt and web server
+        dependencies.satisfyDependency(SslPolicyLoader.create(config, logging.getInternalLogProvider())); // for bolt and web server
 
-        lockManager = dependencies.satisfyDependency( createLockManager( config, platformModule.clock, logging ) );
-        statementLocksFactory = createStatementLocksFactory( lockManager, config, logging );
+        lockManager = dependencies.satisfyDependency(createLockManager(config, platformModule.clock, logging));
+        statementLocksFactory = createStatementLocksFactory(lockManager, config, logging);
 
-        idTypeConfigurationProvider = createIdTypeConfigurationProvider( config );
+        idTypeConfigurationProvider = createIdTypeConfigurationProvider(config);
         eligibleForIdReuse = IdReuseEligibility.ALWAYS;
 
-        createIdComponents( platformModule, dependencies, createIdGeneratorFactory( fileSystem, idTypeConfigurationProvider ) );
-        dependencies.satisfyDependency( idGeneratorFactory );
-        dependencies.satisfyDependency( idController );
+        createIdComponents(platformModule, dependencies, createIdGeneratorFactory(fileSystem, idTypeConfigurationProvider));
+        dependencies.satisfyDependency(idGeneratorFactory);
+        dependencies.satisfyDependency(idController);
 
-        propertyKeyTokenHolder = life.add( dependencies.satisfyDependency( new DelegatingPropertyKeyTokenHolder(
-                createPropertyKeyCreator( config, dataSourceManager, idGeneratorFactory ) ) ) );
-        labelTokenHolder = life.add( dependencies.satisfyDependency(new DelegatingLabelTokenHolder( createLabelIdCreator( config,
-                dataSourceManager, idGeneratorFactory ) ) ));
-        relationshipTypeTokenHolder = life.add( dependencies.satisfyDependency(new DelegatingRelationshipTypeTokenHolder(
-                createRelationshipTypeCreator( config, dataSourceManager, idGeneratorFactory ) ) ));
+        propertyKeyTokenHolder = life.add(dependencies.satisfyDependency(new DelegatingPropertyKeyTokenHolder(
+                createPropertyKeyCreator(config, dataSourceManager, idGeneratorFactory))));
+        labelTokenHolder = life.add(dependencies.satisfyDependency(new DelegatingLabelTokenHolder(createLabelIdCreator(config,
+                dataSourceManager, idGeneratorFactory))));
+        relationshipTypeTokenHolder = life.add(dependencies.satisfyDependency(new DelegatingRelationshipTypeTokenHolder(
+                createRelationshipTypeCreator(config, dataSourceManager, idGeneratorFactory))));
 
         dependencies.satisfyDependency(
-                createKernelData( fileSystem, pageCache, storeDir, config, graphDatabaseFacade, life ) );
+                createKernelData(fileSystem, pageCache, storeDir, config, graphDatabaseFacade, life));
 
-        commitProcessFactory = new CommunityCommitProcessFactory();
+        if (config.get(GraphDatabaseSettings.bs_is_cluster)) {
+            if (config.get(GraphDatabaseSettings.bs_is_master)) {
+                receiver = new HeartBeatReceiver(new HeartBeatReceiver.Configuration() {
+                    @Override
+                    public List<HostnamePort> members() {
+                        return config.get(GraphDatabaseSettings.bs_cluster_hosts);
+                    }
+
+                    @Override
+                    public int instance() {
+                        return config.get(GraphDatabaseSettings.bs_instance_id);
+                    }
+
+                    @Override
+                    public HostnamePort me() {
+                        return config.get(GraphDatabaseSettings.bs_my_host);
+                    }
+                }, logging);
+                propagator = new TransactionPropagator(receiver);
+                life.add(receiver);
+                life.add(propagator);
+            } else {
+                receiver = null;
+                propagator = null;
+            }
+            if (config.get(GraphDatabaseSettings.bs_is_slave)) {
+                sender = new HeartBeatSender(new HeartBeatSender.Configuration() {
+                    @Override
+                    public List<HostnamePort> members() {
+                        return config.get(GraphDatabaseSettings.bs_cluster_hosts);
+                    }
+
+                    @Override
+                    public int instance() {
+                        return config.get(GraphDatabaseSettings.bs_instance_id);
+                    }
+
+                    @Override
+                    public HostnamePort me() {
+                        return config.get(GraphDatabaseSettings.bs_my_host);
+                    }
+                });
+                life.add(sender);
+            } else {
+                sender = null;
+            }
+        } else {
+            receiver = null;
+            sender = null;
+            propagator = null;
+        }
+
+        commitProcessFactory = new CommunityCommitProcessFactory(receiver);
 
         headerInformationFactory = createHeaderInformationFactory();
 
         schemaWriteGuard = createSchemaWriteGuard();
 
-        transactionStartTimeout = config.get( GraphDatabaseSettings.transaction_start_timeout ).toMillis();
+        transactionStartTimeout = config.get(GraphDatabaseSettings.transaction_start_timeout).toMillis();
 
         constraintSemantics = createSchemaRuleVerifier();
 
-        coreAPIAvailabilityGuard = new CoreAPIAvailabilityGuard( platformModule.availabilityGuard, transactionStartTimeout );
+        coreAPIAvailabilityGuard = new CoreAPIAvailabilityGuard(platformModule.availabilityGuard, transactionStartTimeout);
 
         ioLimiter = IOLimiter.unlimited();
 
-        registerRecovery( platformModule.databaseInfo, life, dependencies );
+        registerRecovery(platformModule.databaseInfo, life, dependencies);
 
-        publishEditionInfo( dependencies.resolveDependency( UsageData.class ), platformModule.databaseInfo, config );
+        publishEditionInfo(dependencies.resolveDependency(UsageData.class), platformModule.databaseInfo, config);
 
-        dependencies.satisfyDependency( createSessionTracker() );
+        dependencies.satisfyDependency(createSessionTracker());
     }
 
     protected Predicate<String> fileWatcherFileNameFilter()
@@ -151,149 +216,115 @@ public class CommunityEditionModule extends EditionModule
     static Predicate<String> communityFileWatcherFileNameFilter()
     {
         return Predicates.any(
-                fileName -> fileName.startsWith( TransactionLogFiles.DEFAULT_NAME ),
-                fileName -> fileName.startsWith( IndexConfigStore.INDEX_DB_FILE_NAME )
+                fileName -> fileName.startsWith(TransactionLogFiles.DEFAULT_NAME),
+                fileName -> fileName.startsWith(IndexConfigStore.INDEX_DB_FILE_NAME)
         );
     }
 
-    protected IdTypeConfigurationProvider createIdTypeConfigurationProvider( Config config )
-    {
+    protected IdTypeConfigurationProvider createIdTypeConfigurationProvider(Config config) {
         return new CommunityIdTypeConfigurationProvider();
     }
 
-    protected ConstraintSemantics createSchemaRuleVerifier()
-    {
+    protected ConstraintSemantics createSchemaRuleVerifier() {
         return new StandardConstraintSemantics();
     }
 
-    protected StatementLocksFactory createStatementLocksFactory( Locks locks, Config config, LogService logService )
-    {
-        return new SimpleStatementLocksFactory( locks );
+    protected StatementLocksFactory createStatementLocksFactory(Locks locks, Config config, LogService logService) {
+        return new SimpleStatementLocksFactory(locks);
     }
 
-    protected SchemaWriteGuard createSchemaWriteGuard()
-    {
+    protected SchemaWriteGuard createSchemaWriteGuard() {
         return SchemaWriteGuard.ALLOW_ALL_WRITES;
     }
 
-    private TokenCreator createRelationshipTypeCreator( Config config, DataSourceManager dataSourceManager,
-            IdGeneratorFactory idGeneratorFactory )
-    {
-        if ( config.get( GraphDatabaseSettings.read_only ) )
-        {
+    private TokenCreator createRelationshipTypeCreator(Config config, DataSourceManager dataSourceManager,
+                                                       IdGeneratorFactory idGeneratorFactory) {
+        if (config.get(GraphDatabaseSettings.read_only)) {
             return new ReadOnlyTokenCreator();
-        }
-        else
-        {
-            return new DefaultRelationshipTypeCreator( dataSourceManager, idGeneratorFactory );
+        } else {
+            return new DefaultRelationshipTypeCreator(dataSourceManager, idGeneratorFactory);
         }
     }
 
-    private TokenCreator createPropertyKeyCreator( Config config, DataSourceManager dataSourceManager,
-            IdGeneratorFactory idGeneratorFactory )
-    {
-        if ( config.get( GraphDatabaseSettings.read_only ) )
-        {
+    private TokenCreator createPropertyKeyCreator(Config config, DataSourceManager dataSourceManager,
+                                                  IdGeneratorFactory idGeneratorFactory) {
+        if (config.get(GraphDatabaseSettings.read_only)) {
             return new ReadOnlyTokenCreator();
-        }
-        else
-        {
-            return new DefaultPropertyTokenCreator( dataSourceManager, idGeneratorFactory );
+        } else {
+            return new DefaultPropertyTokenCreator(dataSourceManager, idGeneratorFactory);
         }
     }
 
-    private TokenCreator createLabelIdCreator( Config config, DataSourceManager dataSourceManager,
-            IdGeneratorFactory idGeneratorFactory )
-    {
-        if ( config.get( GraphDatabaseSettings.read_only ) )
-        {
+    private TokenCreator createLabelIdCreator(Config config, DataSourceManager dataSourceManager,
+                                              IdGeneratorFactory idGeneratorFactory) {
+        if (config.get(GraphDatabaseSettings.read_only)) {
             return new ReadOnlyTokenCreator();
-        }
-        else
-        {
-            return new DefaultLabelIdCreator( dataSourceManager, idGeneratorFactory );
+        } else {
+            return new DefaultLabelIdCreator(dataSourceManager, idGeneratorFactory);
         }
     }
 
-    private KernelData createKernelData( FileSystemAbstraction fileSystem, PageCache pageCache, File storeDir,
-            Config config, GraphDatabaseAPI graphAPI, LifeSupport life )
-    {
-        return life.add( new DefaultKernelData( fileSystem, pageCache, storeDir, config, graphAPI ) );
+    private KernelData createKernelData(FileSystemAbstraction fileSystem, PageCache pageCache, File storeDir,
+                                        Config config, GraphDatabaseAPI graphAPI, LifeSupport life) {
+        return life.add(new DefaultKernelData(fileSystem, pageCache, storeDir, config, graphAPI));
     }
 
-    protected IdGeneratorFactory createIdGeneratorFactory( FileSystemAbstraction fs,
-            IdTypeConfigurationProvider idTypeConfigurationProvider )
-    {
-        return new DefaultIdGeneratorFactory( fs, idTypeConfigurationProvider );
+    protected IdGeneratorFactory createIdGeneratorFactory(FileSystemAbstraction fs,
+                                                          IdTypeConfigurationProvider idTypeConfigurationProvider) {
+        return new DefaultIdGeneratorFactory(fs, idTypeConfigurationProvider);
     }
 
-    public static Locks createLockManager( Config config, Clock clock, LogService logging )
-    {
-        String key = config.get( GraphDatabaseFacadeFactory.Configuration.lock_manager );
-        for ( Locks.Factory candidate : Service.load( Locks.Factory.class ) )
-        {
+    public static Locks createLockManager(Config config, Clock clock, LogService logging) {
+        String key = config.get(GraphDatabaseFacadeFactory.Configuration.lock_manager);
+        for (Locks.Factory candidate : Service.load(Locks.Factory.class)) {
             String candidateId = candidate.getKeys().iterator().next();
-            if ( key.equals( candidateId ) )
-            {
-                return candidate.newInstance( config, clock, ResourceTypes.values() );
-            }
-            else if ( key.equals( "" ) )
-            {
-                logging.getInternalLog( CommunityEditionModule.class )
-                        .info( "No locking implementation specified, defaulting to '" + candidateId + "'" );
-                return candidate.newInstance( config, clock, ResourceTypes.values() );
+            if (key.equals(candidateId)) {
+                return candidate.newInstance(config, clock, ResourceTypes.values());
+            } else if (key.equals("")) {
+                logging.getInternalLog(CommunityEditionModule.class)
+                        .info("No locking implementation specified, defaulting to '" + candidateId + "'");
+                return candidate.newInstance(config, clock, ResourceTypes.values());
             }
         }
 
-        if ( key.equals( "community" ) )
-        {
-            return new CommunityLockManger( config, clock );
-        }
-        else if ( key.equals( "" ) )
-        {
-            logging.getInternalLog( CommunityEditionModule.class )
-                    .info( "No locking implementation specified, defaulting to 'community'" );
-            return new CommunityLockManger( config, clock );
+        if (key.equals("community")) {
+            return new CommunityLockManger(config, clock);
+        } else if (key.equals("")) {
+            logging.getInternalLog(CommunityEditionModule.class)
+                    .info("No locking implementation specified, defaulting to 'community'");
+            return new CommunityLockManger(config, clock);
         }
 
-        throw new IllegalArgumentException( "No lock manager found with the name '" + key + "'." );
+        throw new IllegalArgumentException("No lock manager found with the name '" + key + "'.");
     }
 
-    protected TransactionHeaderInformationFactory createHeaderInformationFactory()
-    {
+    protected TransactionHeaderInformationFactory createHeaderInformationFactory() {
         return TransactionHeaderInformationFactory.DEFAULT;
     }
 
-    private void registerRecovery( final DatabaseInfo databaseInfo, LifeSupport life,
-            final DependencyResolver dependencyResolver )
-    {
-        life.addLifecycleListener( ( instance, from, to ) ->
+    private void registerRecovery(final DatabaseInfo databaseInfo, LifeSupport life,
+                                  final DependencyResolver dependencyResolver) {
+        life.addLifecycleListener((instance, from, to) ->
         {
-            if ( instance instanceof DatabaseAvailability && to.equals( LifecycleStatus.STARTED ) )
-            {
-                doAfterRecoveryAndStartup( databaseInfo, dependencyResolver );
+            if (instance instanceof DatabaseAvailability && to.equals(LifecycleStatus.STARTED)) {
+                doAfterRecoveryAndStartup(databaseInfo, dependencyResolver);
             }
-        } );
+        });
     }
 
     @Override
-    public void registerEditionSpecificProcedures( Procedures procedures ) throws KernelException
-    {
+    public void registerEditionSpecificProcedures(Procedures procedures) throws KernelException {
         // Community does not add any extra procedures
     }
 
     @Override
-    public void setupSecurityModule( PlatformModule platformModule, Procedures procedures )
-    {
-        if ( platformModule.config.get( GraphDatabaseSettings.auth_enabled ) )
-        {
-            setupSecurityModule( platformModule, platformModule.logging.getUserLog( getClass() ),
-                    procedures, COMMUNITY_SECURITY_MODULE_ID );
-        }
-        else
-        {
-            platformModule.life.add( platformModule.dependencies.satisfyDependency( AuthManager.NO_AUTH ) );
-            platformModule.life.add( platformModule.dependencies.satisfyDependency( UserManagerSupplier.NO_AUTH ) );
+    public void setupSecurityModule(PlatformModule platformModule, Procedures procedures) {
+        if (platformModule.config.get(GraphDatabaseSettings.auth_enabled)) {
+            setupSecurityModule(platformModule, platformModule.logging.getUserLog(getClass()),
+                    procedures, COMMUNITY_SECURITY_MODULE_ID);
+        } else {
+            platformModule.life.add(platformModule.dependencies.satisfyDependency(AuthManager.NO_AUTH));
+            platformModule.life.add(platformModule.dependencies.satisfyDependency(UserManagerSupplier.NO_AUTH));
         }
     }
 }

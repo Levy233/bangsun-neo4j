@@ -21,15 +21,23 @@ package org.neo4j.kernel.impl.factory;
 
 import org.neo4j.graphdb.factory.GraphDatabaseSettings;
 import org.neo4j.kernel.configuration.Config;
-import org.neo4j.kernel.impl.api.CommitProcessFactory;
-import org.neo4j.kernel.impl.api.ReadOnlyTransactionCommitProcess;
-import org.neo4j.kernel.impl.api.TransactionCommitProcess;
-import org.neo4j.kernel.impl.api.TransactionRepresentationCommitProcess;
+import org.neo4j.kernel.impl.api.*;
 import org.neo4j.kernel.impl.transaction.log.TransactionAppender;
+import org.neo4j.kernel.network.HeartBeatReceiver;
 import org.neo4j.storageengine.api.StorageEngine;
 
 public class CommunityCommitProcessFactory implements CommitProcessFactory
 {
+
+    private HeartBeatReceiver receiver;
+
+    private TransactionPropagator propagator;
+
+    public CommunityCommitProcessFactory(HeartBeatReceiver receiver,TransactionPropagator propagator){
+        this.receiver = receiver;
+        this.propagator = propagator;
+    }
+
     @Override
     public TransactionCommitProcess create( TransactionAppender appender, StorageEngine storageEngine,
             Config config )
@@ -37,6 +45,9 @@ public class CommunityCommitProcessFactory implements CommitProcessFactory
         if ( config.get( GraphDatabaseSettings.read_only ) )
         {
             return new ReadOnlyTransactionCommitProcess();
+        }
+        if(config.get(GraphDatabaseSettings.bs_is_cluster)&&config.get(GraphDatabaseSettings.bs_is_master)){
+            return new MasterTransactionCommitProcess(new TransactionRepresentationCommitProcess( appender, storageEngine ),receiver,propagator);
         }
         return new TransactionRepresentationCommitProcess( appender, storageEngine );
     }
