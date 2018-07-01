@@ -9,7 +9,7 @@ import java.util.HashMap;
 /**
  * Created by Think on 2018/5/25.
  */
-public class Slave {
+public class Slave implements AutoCloseable{
 
     private int instanceId;
 
@@ -20,6 +20,8 @@ public class Slave {
     }
 
     private ChannelHandlerContext ctx;
+
+    private int time_out = 0;
 
     public Slave(ChannelHandlerContext ctx,int instanceId, HostnamePort hostnamePort){
         this.instanceId = instanceId;
@@ -48,6 +50,19 @@ public class Slave {
 
     public Boolean commit(TransactionRepresentation representation){
         ctx.writeAndFlush(representation);
+        return true;
+    }
+    @Override
+    public void close() throws Exception {
+
+    }
+
+    public int addTimeOut(){
+        return time_out++;
+    }
+
+    public boolean resetTimeOut(){
+        time_out=0;
         return true;
     }
 }

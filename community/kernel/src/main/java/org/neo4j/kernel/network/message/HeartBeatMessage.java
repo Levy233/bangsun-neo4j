@@ -1,8 +1,5 @@
 package org.neo4j.kernel.network.message;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.util.CharsetUtil;
 import org.neo4j.helpers.HostnamePort;
 
 import java.io.Serializable;
@@ -11,11 +8,17 @@ import java.io.Serializable;
  * Created by Think on 2018/5/25.
  */
 public class HeartBeatMessage implements Serializable {
-    private static final long nSerialVerUID = 1L;
+    private static final long nSerialVerUID = 89098410L;
 
-    private  int instanceId;
+    private int instanceId;
 
     private String alive;
+
+    public long getStoreId() {
+        return storeId;
+    }
+
+    private long storeId;
 
     public int getInstanceId() {
         return instanceId;
@@ -41,4 +44,9 @@ public class HeartBeatMessage implements Serializable {
     public String toString(){
         return "Id is "+instanceId +" and is " + alive;
     }
+
+//    @Override
+//    public void handle(Handler handler) {
+//
+//    }
 }
