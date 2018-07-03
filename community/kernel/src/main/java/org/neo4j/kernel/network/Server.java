@@ -1,7 +1,10 @@
 package org.neo4j.kernel.network;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.*;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -10,23 +13,16 @@ import io.netty.handler.codec.serialization.ObjectDecoder;
 import io.netty.handler.codec.serialization.ObjectEncoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-import io.netty.handler.timeout.IdleState;
-import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.neo4j.helpers.HostnamePort;
 import org.neo4j.kernel.cluster.AliveSlaves;
-import org.neo4j.kernel.cluster.Slave;
 import org.neo4j.kernel.impl.logging.LogService;
 import org.neo4j.kernel.lifecycle.Lifecycle;
 import org.neo4j.kernel.network.handle.ServerHandler;
-import org.neo4j.kernel.network.message.HeartBeatMessage;
-import org.neo4j.kernel.network.message.RequestContext;
-import org.neo4j.kernel.network.message.TransactionStreamResponse;
 import org.neo4j.kernel.network.state.StateMachine;
 import org.neo4j.logging.Log;
 
 import java.net.InetSocketAddress;
-import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -62,7 +58,17 @@ public class Server implements Lifecycle {
     }
 
     @Override
-    public void init() throws Throwable {
+    public void init() {
+
+    }
+
+    @Override
+    public void stop() {
+
+    }
+
+    @Override
+    public void shutdown() {
 
     }
 
@@ -81,6 +87,10 @@ public class Server implements Lifecycle {
                         ch.pipeline().addLast(new ObjectDecoder(1024 * 1024,
                                 ClassResolvers.weakCachingConcurrentResolver(this.getClass().getClassLoader())));
                         ch.pipeline().addLast("encoder", new ObjectEncoder());
+//                        ch.pipeline().addLast(new Decoder());
+//                        ch.pipeline().addLast(new Encoder());
+//                        ch.pipeline().addLast(MarshallingCodeCFactory.buildMarshallingEncoder());
+//                        ch.pipeline().addLast(MarshallingCodeCFactory.buildMarshallingDecoder());
                         ch.pipeline().addLast(handler);
                     }
                 }).option(ChannelOption.SO_BACKLOG, 128)
@@ -103,15 +113,7 @@ public class Server implements Lifecycle {
         });
     }
 
-    @Override
-    public void stop() throws Throwable {
-        bossGroup.shutdownGracefully();
-        workerGroup.shutdownGracefully();
-    }
-
-    @Override
-    public void shutdown() throws Throwable {
-        bossGroup.shutdownGracefully();
-        workerGroup.shutdownGracefully();
-    }
+//    public static void main(String[] args) throws Throwable {
+//        new Server().start();
+//    }
 }
