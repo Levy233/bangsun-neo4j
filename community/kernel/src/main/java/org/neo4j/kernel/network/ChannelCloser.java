@@ -19,27 +19,9 @@
  */
 package org.neo4j.kernel.network;
 
-public interface ResponseUnpacker
+import org.jboss.netty.channel.Channel;
+
+public interface ChannelCloser
 {
-    /**
-     * @param txHandler for getting an insight into which transactions gets applied.
-     */
-    void unpackResponse(Response<?> response, TxHandler txHandler) throws Exception;
-
-    ResponseUnpacker NO_OP_RESPONSE_UNPACKER = new ResponseUnpacker() {
-        @Override
-        public void unpackResponse(Response<?> response, TxHandler txHandler) throws Exception {
-        /* Do nothing */
-        }
-    };
-
-    interface TxHandler
-    {
-        TxHandler NO_OP_TX_HANDLER = transactionId ->
-        {
-            /* Do nothing */
-        };
-
-        void accept(long transactionId);
-    }
+    void tryToCloseChannel(Channel channel);
 }

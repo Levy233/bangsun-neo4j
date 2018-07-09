@@ -1,4 +1,24 @@
+/*
+ * Copyright (c) 2002-2018 "Neo Technology,"
+ * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ *
+ * This file is part of Neo4j.
+ *
+ * Neo4j is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 package org.neo4j.kernel.network;
+
 
 import org.neo4j.cursor.IOCursor;
 import org.neo4j.helpers.collection.Visitor;
@@ -7,49 +27,60 @@ import org.neo4j.kernel.impl.transaction.CommittedTransactionRepresentation;
 import org.neo4j.kernel.impl.transaction.log.LogicalTransactionStore;
 import org.neo4j.kernel.impl.transaction.log.TransactionIdStore;
 import org.neo4j.kernel.network.message.RequestContext;
+import org.neo4j.kernel.network.message.TransactionObligationResponse;
 import org.neo4j.kernel.network.message.TransactionStreamResponse;
 
-import java.io.IOException;
 import java.util.function.Supplier;
 
 import static org.neo4j.kernel.impl.transaction.log.TransactionIdStore.BASE_TX_ID;
 
-/**
- * Created by Think on 2018/6/26.
- */
-public class ResponsePacker {
-
-    protected final Supplier<LogicalTransactionStore> transactionStoreSupplier;
+public class ResponsePacker
+{
+    protected final Supplier<LogicalTransactionStore> transactionStore;
     protected final Supplier<StoreId> storeId; // for lazy storeId getter
-    private final Supplier<TransactionIdStore> transactionIdStoreSupplier;
-    public ResponsePacker( Supplier<LogicalTransactionStore> transactionStoreSupplier, Supplier<TransactionIdStore> transactionIdStoreSupplier,
-                           Supplier<StoreId> storeId )
+    private final Supplier<TransactionIdStore> transactionIdStore;
+
+    public ResponsePacker(Supplier<LogicalTransactionStore> transactionStore, Supplier<TransactionIdStore> transactionIdStore,
+                          Supplier<StoreId> storeId )
     {
-        this.transactionStoreSupplier = transactionStoreSupplier;
-        this.transactionIdStoreSupplier = transactionIdStoreSupplier;
+        this.transactionStore = transactionStore;
+        this.transactionIdStore = transactionIdStore;
         this.storeId = storeId;
     }
-    public TransactionStreamResponse packTransactionStreamResponse(RequestContext context) throws IOException {
+
+    public <T> Response<T> packTransactionStreamResponse(RequestContext context, T response )
+    {
         final long toStartFrom = context.lastAppliedTransaction() + 1;
-        final long toEndAt = transactionIdStoreSupplier.get().getLastCommittedTransactionId();
-        IOCursor<CommittedTransactionRepresentation> cursor = transactionStoreSupplier.get()
-                .getTransactions( toStartFrom );
-        TransactionStreamList list = new TransactionStreamList();
-        while (cursor.next()){
-            CommittedTransactionRepresentation transactionRepresentation = cursor.get();
-            if(transactionRepresentation.getCommitEntry().getTxId()>toEndAt) break;
-            list.add(transactionRepresentation);
-        }
-        return new TransactionStreamResponse(storeId.get(),list);
-//        TransactionStream transactions = visitor ->
-//        {
-//            // Check so that it's even worth thinking about extracting any transactions at all
-//            if ( toStartFrom > BASE_TX_ID && toStartFrom <= toEndAt )
-//            {
-//                extractTransactions( toStartFrom, filterVisitor( visitor, toEndAt ) );
-//            }
-//        };
-//        return new TransactionStreamResponse(storeId.get(), transactions);
+        final long toEndAt = transactionIdStore.get().getLastCommittedTransactionId();
+        TransactionStream transactions = new TransactionStream() {
+            @Override
+            public void accept(Visitor<CommittedTransactionRepresentation, Exception> visitor) throws Exception {
+                // Check so that it's even worth thinking about extracting any transactions at all
+                if (toStartFrom > BASE_TX_ID && toStartFrom <= toEndAt) {
+                    ResponsePacker.this.extractTransactions(toStartFrom, ResponsePacker.this.filterVisitor(visitor, toEndAt));
+                }
+            }
+        };
+        return new TransactionStreamResponse<>( response, storeId.get(), transactions, ResourceReleaser.NO_OP );
+    }
+
+    public <T> Response<T> packTransactionObligationResponse( RequestContext context, T response )
+    {
+        return packTransactionObligationResponse( context, response,
+                transactionIdStore.get().getLastCommittedTransactionId() );
+    }
+
+    public <T> Response<T> packTransactionObligationResponse( RequestContext context, T response,
+                                                              long obligationTxId )
+    {
+        return new TransactionObligationResponse<>( response, storeId.get(), obligationTxId,
+                ResourceReleaser.NO_OP );
+    }
+
+    public <T> Response<T> packEmptyResponse( T response )
+    {
+        return new TransactionObligationResponse<>( response, storeId.get(), TransactionIdStore.BASE_TX_ID,
+                ResourceReleaser.NO_OP );
     }
 
     protected Visitor<CommittedTransactionRepresentation,Exception> filterVisitor(
@@ -70,7 +101,7 @@ public class ResponsePacker {
                                         Visitor<CommittedTransactionRepresentation,Exception> visitor )
             throws Exception
     {
-        try ( IOCursor<CommittedTransactionRepresentation> cursor = transactionStoreSupplier.get()
+        try ( IOCursor<CommittedTransactionRepresentation> cursor = transactionStore.get()
                 .getTransactions( startingAtTransactionId ) )
         {
             while ( cursor.next() && !visitor.visit( cursor.get() ) )

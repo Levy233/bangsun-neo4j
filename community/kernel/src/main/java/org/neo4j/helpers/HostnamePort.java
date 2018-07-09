@@ -21,6 +21,7 @@ package org.neo4j.helpers;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.Serializable;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Objects;
@@ -31,8 +32,9 @@ import static java.lang.String.format;
  * Represents a hostname and port, optionally with a port range.
  * Examples: myhost, myhost:1234, myhost:1234-1240, :1234, :1234-1240
  */
-public class HostnamePort
+public class HostnamePort implements Serializable
 {
+    private static final long nSerialVerUID = 89098411L;
     private final String host;
     private final int[] ports;
 

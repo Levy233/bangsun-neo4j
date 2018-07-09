@@ -14,6 +14,10 @@ public class StateMachine {
         return storeState;
     }
 
+    public void setStoreState(StoreState storeState) {
+        this.storeState = storeState;
+    }
+
     private StoreState storeState;
 
     public TransactionIdStore getTransactionIdStore() {
@@ -32,12 +36,15 @@ public class StateMachine {
     }
 
     public StoreState handle(HeartBeatMessage message,TransactionIdStore transactionIdStore){
-        if(message instanceof HeartBeatMessage){
+        if(message != null){
             if (message.getStoreId()>transactionIdStore.getLastCommittedTransactionId()){
+                this.storeState = StoreState.newer;
                 return StoreState.newer;
             }else if(message.getStoreId()==transactionIdStore.getLastCommittedTransactionId()){
+                this.storeState = StoreState.same;
                 return StoreState.same;
             }else{
+                this.storeState = StoreState.older;
                 return StoreState.older;
             }
         }

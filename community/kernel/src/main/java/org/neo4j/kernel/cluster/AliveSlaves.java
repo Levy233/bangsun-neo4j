@@ -1,6 +1,8 @@
 package org.neo4j.kernel.cluster;
 
-import io.netty.channel.ChannelHandlerContext;
+
+
+import org.jboss.netty.channel.ChannelHandlerContext;
 
 import java.util.ArrayList;
 import java.util.List;

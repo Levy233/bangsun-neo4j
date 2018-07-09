@@ -7,9 +7,12 @@ import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.ReferenceCountUtil;
 import org.neo4j.helpers.HostnamePort;
+import org.neo4j.kernel.impl.transaction.log.TransactionIdStore;
 import org.neo4j.kernel.network.message.HeartBeatMessage;
+import org.neo4j.kernel.network.message.TransactionStreamResponse;
 
 import java.util.Date;
+import java.util.function.Supplier;
 
 /**
  * Created by Think on 2018/5/24.
@@ -21,14 +24,18 @@ public class ClientHandler extends ChannelInboundHandlerAdapter {
     private final int instanceId;
 
     private final HostnamePort hostnamePort;
+    private Supplier<TransactionIdStore> storeSupplier;
+    private TransactionIdStore transactionIdStore;
 
-    public ClientHandler(int instanceId, HostnamePort hostnamePort){
+    public ClientHandler(int instanceId, HostnamePort hostnamePort, Supplier<TransactionIdStore> storeSupplier) {
         this.instanceId = instanceId;
         this.hostnamePort = hostnamePort;
+        this.storeSupplier = storeSupplier;
     }
+
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        System.out.println("Client: active channel id "+ctx.channel().id());
+        System.out.println("Client: active channel id " + ctx.channel().id());
         ctx.fireChannelActive();
     }
 
@@ -43,9 +50,14 @@ public class ClientHandler extends ChannelInboundHandlerAdapter {
         if (evt instanceof IdleStateEvent) {
             IdleStateEvent event = (IdleStateEvent) evt;
             if (event.state() == IdleState.WRITER_IDLE) {
-                ctx.write(new HeartBeatMessage(instanceId,hostnamePort,"I_am_alive"));
+                if (transactionIdStore == null) {
+                    transactionIdStore = storeSupplier.get();
+                }
+                HeartBeatMessage msg = new HeartBeatMessage(instanceId, hostnamePort, "I_am_alive");
+                msg.setStoreId(transactionIdStore.getLastCommittedTransactionId());
+                ctx.write(msg);
                 ctx.flush();
-                System.out.println("Client: sended heartbeat msg... "+ctx.channel().id());
+                System.out.println("Client: sended heartbeat msg... " + ctx.channel().id());
             }
         }
     }
@@ -56,14 +68,17 @@ public class ClientHandler extends ChannelInboundHandlerAdapter {
         super.exceptionCaught(ctx, cause);
     }
 
-    @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        String message = (String) msg;
-        System.out.println(message);
-        if (message.equals("Heartbeat")) {
-            ctx.write("has read message from server");
-            ctx.flush();
-        }
-        ReferenceCountUtil.release(msg);
-    }
+//    @Override
+//    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+//        if(msg instanceof TransactionStreamResponse){
+//
+//        }
+//        String message = (String) msg;
+//        System.out.println(message);
+//        if (message.equals("Heartbeat")) {
+//            ctx.write("has read message from server");
+//            ctx.flush();
+//        }
+//        ReferenceCountUtil.release(msg);
+//    }
 }

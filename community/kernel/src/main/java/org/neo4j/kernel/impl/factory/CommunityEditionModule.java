@@ -68,7 +68,9 @@ import org.neo4j.kernel.impl.store.id.configuration.CommunityIdTypeConfiguration
 import org.neo4j.kernel.impl.store.id.configuration.IdTypeConfigurationProvider;
 import org.neo4j.kernel.impl.transaction.TransactionHeaderInformationFactory;
 import org.neo4j.kernel.impl.transaction.log.LogicalTransactionStore;
+import org.neo4j.kernel.impl.transaction.log.ReadableClosablePositionAwareChannel;
 import org.neo4j.kernel.impl.transaction.log.TransactionIdStore;
+import org.neo4j.kernel.impl.transaction.log.entry.LogEntryReader;
 import org.neo4j.kernel.impl.transaction.log.files.TransactionLogFiles;
 import org.neo4j.kernel.impl.transaction.state.DataSourceManager;
 import org.neo4j.kernel.internal.DefaultKernelData;
@@ -76,13 +78,10 @@ import org.neo4j.kernel.internal.GraphDatabaseAPI;
 import org.neo4j.kernel.internal.KernelData;
 import org.neo4j.kernel.lifecycle.LifeSupport;
 import org.neo4j.kernel.lifecycle.LifecycleStatus;
-import org.neo4j.kernel.monitoring.Monitors;
-import org.neo4j.kernel.network.Client;
-import org.neo4j.kernel.network.ResponsePacker;
-import org.neo4j.kernel.network.ResponseUnpacker;
-import org.neo4j.kernel.network.Server;
+import org.neo4j.kernel.network.*;
 import org.neo4j.kernel.network.state.StateMachine;
 import org.neo4j.kernel.network.state.StoreState;
+import org.neo4j.time.Clocks;
 import org.neo4j.udc.UsageData;
 
 /**
@@ -138,7 +137,17 @@ public class CommunityEditionModule extends EditionModule
                 createKernelData(fileSystem, pageCache, storeDir, config, graphDatabaseFacade, life));
         if (config.get(BsClusterSettings.bs_is_cluster)) {
             final long idReuseSafeZone = config.get( BsClusterSettings.id_reuse_safe_zone_time ).toMillis();
-            ResponseUnpacker unpacker = new ResponseUnpacker(dependencies,idReuseSafeZone);
+            InstanceId serverId = config.get( BsClusterSettings.bs_instance_id );
+            RequestContextFactory requestContextFactory = dependencies.satisfyDependency( new RequestContextFactory(
+                    serverId.toIntegerIndex(),
+                    dependencies.provideDependency( TransactionIdStore.class ) ) );
+            TransactionCommittingResponseUnpacker responseUnpacker = dependencies.satisfyDependency(
+                    new TransactionCommittingResponseUnpacker( dependencies,
+                            config.get( BsClusterSettings.pull_apply_batch_size ), idReuseSafeZone ) );
+            @SuppressWarnings( {"deprecation", "unchecked"} )
+            Supplier<LogEntryReader<ReadableClosablePositionAwareChannel>> logEntryReader =
+                    (Supplier) dependencies.provideDependency( LogEntryReader.class );
+//            ResponseUnpacker unpacker = new ResponseUnpacker(dependencies,idReuseSafeZone);
             Supplier<TransactionIdStore> transactionIdStoreSupplier = dependencies.provideDependency( TransactionIdStore.class );
             Supplier<LogicalTransactionStore> logicalTransactionStoreSupplier = dependencies.provideDependency( LogicalTransactionStore.class );
             ResponsePacker responsePacker = new ResponsePacker( logicalTransactionStoreSupplier, transactionIdStoreSupplier, platformModule.graphDatabaseFacade::storeId );
@@ -150,7 +159,7 @@ public class CommunityEditionModule extends EditionModule
                 }
 
                 @Override
-                public int instance() {
+                public InstanceId instance() {
                     return config.get(BsClusterSettings.bs_instance_id);
                 }
 
@@ -164,8 +173,6 @@ public class CommunityEditionModule extends EditionModule
                     return config.get(BsClusterSettings.bs_lost_time_out);
                 }
             }, logging,stateMachine,responsePacker);
-            life.add(server);
-
             Client client = new Client(new Client.Configuration() {
                 @Override
                 public List<HostnamePort> members() {
@@ -173,7 +180,7 @@ public class CommunityEditionModule extends EditionModule
                 }
 
                 @Override
-                public int instance() {
+                public InstanceId instance() {
                     return config.get(BsClusterSettings.bs_instance_id);
                 }
 
@@ -186,10 +193,36 @@ public class CommunityEditionModule extends EditionModule
                 public int connectTimeOut() {
                     return config.get(BsClusterSettings.bs_connect_time_out);
                 }
-            },unpacker,logging);
-            life.add(unpacker);
+            },logging,transactionIdStoreSupplier);
+            ClientForData clientForData = new ClientForData(logging,config.get(BsClusterSettings.bs_cluster_data_hosts), config.get(BsClusterSettings.bs_instance_id),config.get(BsClusterSettings.com_chunk_size).intValue(),(int) config.get( BsClusterSettings.read_timeout ).toMillis(),responseUnpacker,logEntryReader);
+            ServerForData serverForData = new ServerForData(new ServerForData.Configuration(){
+                @Override
+                public HostnamePort me() {
+                    return config.get(BsClusterSettings.bs_my_data_host);
+                }
+
+                @Override
+                public long getOldChannelThreshold() {
+                    return config.get(BsClusterSettings.lock_read_timeout).toMillis();
+                }
+
+                @Override
+                public int getMaxConcurrentTransactions() {
+                    return config.get(BsClusterSettings.max_concurrent_channels_per_slave);
+                }
+
+                @Override
+                public int getChunkSize() {
+                    return config.get(BsClusterSettings.com_chunk_size).intValue();
+                }
+            },logging.getInternalLogProvider(), Clocks.systemClock(),responsePacker);
+            SlaveUpdatePuller puller = new SlaveUpdatePuller(stateMachine,clientForData,requestContextFactory,platformModule.jobScheduler);
+            life.add(responseUnpacker);
+            life.add(serverForData);
+            life.add(clientForData);
+            life.add(requestContextFactory);
+            life.add(server);
             life.add(client);
-            SlaveUpdatePuller puller = new SlaveUpdatePuller(stateMachine,client.getChannel(),platformModule.jobScheduler);
             life.add(puller);
         }
 

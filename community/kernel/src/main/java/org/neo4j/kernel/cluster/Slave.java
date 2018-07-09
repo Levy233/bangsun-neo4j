@@ -1,6 +1,7 @@
 package org.neo4j.kernel.cluster;
 
-import io.netty.channel.ChannelHandlerContext;
+
+import org.jboss.netty.channel.ChannelHandlerContext;
 import org.neo4j.helpers.HostnamePort;
 import org.neo4j.kernel.impl.transaction.TransactionRepresentation;
 
@@ -23,8 +24,7 @@ public class Slave implements AutoCloseable{
 
     private int time_out = 0;
 
-    public Slave(ChannelHandlerContext ctx,int instanceId, HostnamePort hostnamePort){
-        this.instanceId = instanceId;
+    public Slave(ChannelHandlerContext ctx, HostnamePort hostnamePort){
         this.hostnamePort = hostnamePort;
         this.ctx =ctx;
     }
@@ -49,7 +49,7 @@ public class Slave implements AutoCloseable{
     }
 
     public Boolean commit(TransactionRepresentation representation){
-        ctx.writeAndFlush(representation);
+        ctx.getChannel().write(representation);
         return true;
     }
     @Override

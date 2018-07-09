@@ -17,29 +17,27 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-package org.neo4j.kernel.network;
+package org.neo4j.kernel.network.exception;
 
-public interface ResponseUnpacker
+public class ServerFailureException extends RuntimeException
 {
-    /**
-     * @param txHandler for getting an insight into which transactions gets applied.
-     */
-    void unpackResponse(Response<?> response, TxHandler txHandler) throws Exception;
-
-    ResponseUnpacker NO_OP_RESPONSE_UNPACKER = new ResponseUnpacker() {
-        @Override
-        public void unpackResponse(Response<?> response, TxHandler txHandler) throws Exception {
-        /* Do nothing */
-        }
-    };
-
-    interface TxHandler
+    public ServerFailureException()
     {
-        TxHandler NO_OP_TX_HANDLER = transactionId ->
-        {
-            /* Do nothing */
-        };
+        super();
+    }
 
-        void accept(long transactionId);
+    public ServerFailureException(String message, Throwable cause )
+    {
+        super( message, cause );
+    }
+
+    public ServerFailureException(String message )
+    {
+        super( message );
+    }
+
+    public ServerFailureException(Throwable cause )
+    {
+        super( cause );
     }
 }

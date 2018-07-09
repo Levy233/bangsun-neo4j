@@ -1,124 +1,72 @@
 package org.neo4j.kernel.network.handle;
 
-/**
- * Created by Think on 2018/5/24.
- */
-
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.handler.timeout.IdleState;
-import io.netty.handler.timeout.IdleStateEvent;
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
-import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.*;
+import org.jboss.netty.channel.group.ChannelGroup;
 import org.neo4j.helpers.HostnamePort;
 import org.neo4j.kernel.cluster.AliveSlaves;
 import org.neo4j.kernel.cluster.Slave;
-import org.neo4j.kernel.network.ChunkingChannelBuffer;
 import org.neo4j.kernel.network.ResponsePacker;
+import org.neo4j.kernel.network.Server;
 import org.neo4j.kernel.network.message.HeartBeatMessage;
-import org.neo4j.kernel.network.message.RequestContext;
-import org.neo4j.kernel.network.message.TransactionResponse;
-import org.neo4j.kernel.network.message.TransactionStreamResponse;
+import org.neo4j.kernel.network.message.HeartBeatResponse;
 import org.neo4j.kernel.network.state.StateMachine;
 import org.neo4j.logging.Log;
+import org.neo4j.logging.LogProvider;
+
+import java.time.Clock;
 
 @ChannelHandler.Sharable
-public class ServerHandler extends ChannelInboundHandlerAdapter {
+public class ServerHandler extends SimpleChannelHandler{
+
     private Log logging;
     private volatile AliveSlaves aliveSlaves;
     //未收到信号间隔次数
     private int outTime;
     private StateMachine stateMachine;
-    private ResponsePacker responsePacker;
 
-    public ServerHandler(AliveSlaves aliveSlaves, int outTime, StateMachine stateMachine, Log logService, ResponsePacker responsePacker) {
-        this.logging = logService;
-        this.outTime = outTime;
+    public ServerHandler(AliveSlaves aliveSlaves, Server.Configuration config, LogProvider logProvider, ChannelGroup channelGroup, Clock clock, StateMachine stateMachine, ResponsePacker responsePacker) {
+        this.logging = logProvider.getLog(getClass());
+        this.outTime = config.lost_time_out();
         this.aliveSlaves = aliveSlaves;
         this.stateMachine = stateMachine;
-        this.responsePacker = responsePacker;
     }
 
     @Override
-    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-        if (evt instanceof IdleStateEvent) {
-            IdleStateEvent event = (IdleStateEvent) evt;
-            if (event.state() == IdleState.READER_IDLE) {
-                Slave slave = aliveSlaves.search(ctx);
-                int time_out = slave.addTimeOut();
-                System.out.println("5 秒没有接收到客户端的信息了");
-                if (time_out > outTime) {
-                    System.out.println("关闭这个不活跃的channel");
-                    ctx.channel().close();
-                    aliveSlaves.remove(slave);
-                }
+    public void handleUpstream(final ChannelHandlerContext ctx, ChannelEvent e) throws Exception {
+        if (e instanceof org.jboss.netty.handler.timeout.IdleStateEvent) {
+            if (((org.jboss.netty.handler.timeout.IdleStateEvent) e).getState() == org.jboss.netty.handler.timeout.IdleState.ALL_IDLE) {
+                System.out.println("需要提醒玩家下线");
+                //关闭会话,踢玩家下线
+                ChannelFuture write = ctx.getChannel().write("hi  time out, you will close");
+                write.addListener(future -> ctx.getChannel().close());
             }
         } else {
-            super.userEventTriggered(ctx, evt);
+            super.handleUpstream(ctx, e);
         }
     }
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        System.out.println("Server: channelActive: " + ctx.channel().id());
+    public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
+        System.out.println("Server: channelActive: " + ctx.getChannel().getRemoteAddress());
         System.out.println(aliveSlaves.getSlaves().size());
         try (Slave slave = aliveSlaves.search(ctx)) {
             if (slave != null) {
-                System.out.println("Server: " + slave.getCtx().channel().remoteAddress());
+                System.out.println("Server: " + slave.getCtx().getChannel().getRemoteAddress());
             } else {
-                aliveSlaves.add(slave);
+                HostnamePort hostnamePort = new HostnamePort(ctx.getChannel().getRemoteAddress().toString().replace("/", ""));
+                Slave slave1 = new Slave(ctx, hostnamePort);
+                aliveSlaves.add(slave1);
             }
         }
-        ctx.fireChannelActive();
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        System.out.println("Server: channelInactive: " + ctx.channel().id());
-        ctx.fireChannelInactive();
-    }
-
-    @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    public void messageReceived(ChannelHandlerContext ctx, MessageEvent event) throws Exception {
+        Object msg = event.getMessage();
         System.out.println("Server: channelRead " + msg.toString());
         if (msg instanceof HeartBeatMessage) {
             stateMachine.handle((HeartBeatMessage) msg);
-        } else if (msg instanceof RequestContext) {
-            TransactionStreamResponse response = responsePacker.packTransactionStreamResponse((RequestContext) msg);
-//            ctx.channel().writeAndFlush(new TransactionResponse(1111,new HostnamePort("127.0.0.1",9090),"prepare to apply transactions"));
-            ctx.channel().writeAndFlush(response);
-        } else {
-            ctx.fireChannelRead(msg);
+            ctx.getChannel().write(new HeartBeatResponse("receive heartbeat msg"));
         }
     }
-
-    @Override
-    public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
-        System.out.println("Server: channelReadComplete " + ctx.channel().id());
-        ctx.fireChannelReadComplete();
-    }
-
-    @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        try (Slave slave = aliveSlaves.search(ctx)) {
-            if (slave != null) {
-                aliveSlaves.remove(slave);
-                System.out.println(slave.getCtx().channel().remoteAddress() + "closed due to exception" + cause.getMessage());
-            }
-        }
-        ctx.close();
-    }
-
-//    private Slave recognizeSlave(ChannelHandlerContext ctx,Object msg){
-//        HeartBeatMessage msg1 = (HeartBeatMessage)msg;
-//        return new Slave(ctx,msg1.getInstanceId(),msg1.getSender());
-//    }
-//    private ChannelBuffer serializeToBuffer(TransactionStreamResponse response,Channel channel){
-//        ChannelBuffer buffer = ChannelBuffers.dynamicBuffer();
-//        ChunkingChannelBuffer chunkingBuffer = new ChunkingChannelBuffer( buffer,
-//                channel, chunkSize, internalProtocolVersion, applicationProtocolVersion );
-//        return buffer;
-//    }
 }

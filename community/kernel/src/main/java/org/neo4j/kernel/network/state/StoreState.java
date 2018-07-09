@@ -23,6 +23,12 @@ public enum StoreState implements State{
 
         }
     },
+    pulling{
+        @Override
+        public void handle() {
+
+        }
+    },
     start{
         @Override
         public void handle() {

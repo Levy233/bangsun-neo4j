@@ -19,27 +19,11 @@
  */
 package org.neo4j.kernel.network;
 
-public interface ResponseUnpacker
+/**
+ * Fulfills transaction obligations, i.e. ensures that the database has committed and applied a particular
+ * transaction id.
+ */
+public interface TransactionObligationFulfiller
 {
-    /**
-     * @param txHandler for getting an insight into which transactions gets applied.
-     */
-    void unpackResponse(Response<?> response, TxHandler txHandler) throws Exception;
-
-    ResponseUnpacker NO_OP_RESPONSE_UNPACKER = new ResponseUnpacker() {
-        @Override
-        public void unpackResponse(Response<?> response, TxHandler txHandler) throws Exception {
-        /* Do nothing */
-        }
-    };
-
-    interface TxHandler
-    {
-        TxHandler NO_OP_TX_HANDLER = transactionId ->
-        {
-            /* Do nothing */
-        };
-
-        void accept(long transactionId);
-    }
+    void fulfill(long toTxId) throws InterruptedException;
 }

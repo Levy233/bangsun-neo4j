@@ -1,15 +1,14 @@
 package org.neo4j.kernel.network.message;
 
-
 import org.neo4j.helpers.HostnamePort;
 
 import java.io.Serializable;
 
 /**
- * Created by Think on 2018/5/25.
+ * Created by Think on 2018/7/2.
  */
-public class HeartBeatMessage implements Serializable,Message {
-    private static final long nSerialVerUID = 89098401L;
+public class TransactionResponse implements Serializable{
+    private static final long nSerialVerUID = 89098410L;
 
     private int instanceId;
 
@@ -38,7 +37,7 @@ public class HeartBeatMessage implements Serializable,Message {
 
     private HostnamePort sender;
 
-    public HeartBeatMessage(int instanceId,HostnamePort sender, String alive){
+    public TransactionResponse(int instanceId,HostnamePort sender, String alive){
         this.instanceId = instanceId;
         this.alive = alive;
         this.sender = sender;
@@ -47,10 +46,5 @@ public class HeartBeatMessage implements Serializable,Message {
     @Override
     public String toString(){
         return "Id is "+instanceId +" and is " + alive;
-    }
-
-    @Override
-    public void handle(Handler handler) {
-
     }
 }

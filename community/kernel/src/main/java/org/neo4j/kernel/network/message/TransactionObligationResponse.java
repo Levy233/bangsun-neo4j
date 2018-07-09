@@ -19,39 +19,38 @@
  */
 package org.neo4j.kernel.network.message;
 
-
 import org.neo4j.kernel.impl.store.StoreId;
 import org.neo4j.kernel.network.ResourceReleaser;
 import org.neo4j.kernel.network.Response;
-import org.neo4j.kernel.network.ResponseUnpacker;
-import org.neo4j.kernel.network.TransactionStream;
+
+import java.io.IOException;
 
 /**
- * {@link Response} that carries {@link TransactionStream transaction data} as a side-effect, to be applied
- * before accessing the response value.
+ * {@link Response} that carries transaction obligation as a side-effect.
  *
- * @see ResponseUnpacker
+ * @see TransactionObligationFulfiller
  */
-public class TransactionStreamResponse<T> extends Response<T>
+public class TransactionObligationResponse<T> extends Response<T>
 {
-    private final TransactionStream transactions;
+    public static final byte RESPONSE_TYPE = -1;
 
-    public TransactionStreamResponse(T response, StoreId storeId, TransactionStream transactions,
-                                     ResourceReleaser releaser )
+    private final long obligationTxId;
+
+    public TransactionObligationResponse(T response, StoreId storeId, long obligationTxId, ResourceReleaser releaser )
     {
         super( response, storeId, releaser );
-        this.transactions = transactions;
+        this.obligationTxId = obligationTxId;
     }
 
     @Override
-    public void accept( Response.Handler handler ) throws Exception
+    public void accept( Response.Handler handler ) throws IOException
     {
-        transactions.accept( handler.transactions() );
+        handler.obligation( obligationTxId );
     }
 
     @Override
     public boolean hasTransactionsToBeApplied()
     {
-        return true;
+        return false;
     }
 }
