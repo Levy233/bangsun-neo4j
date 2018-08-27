@@ -1,12 +1,15 @@
 package org.neo4j.kernel.cluster;
 
-import io.netty.channel.Channel;
+import org.neo4j.kernel.impl.logging.LogService;
 import org.neo4j.kernel.lifecycle.Lifecycle;
-import org.neo4j.kernel.network.*;
-import org.neo4j.kernel.network.message.Message;
+import org.neo4j.kernel.network.ClientForData;
+import org.neo4j.kernel.network.Deserializer;
+import org.neo4j.kernel.network.RequestContextFactory;
+import org.neo4j.kernel.network.Serializer;
 import org.neo4j.kernel.network.message.RequestContext;
 import org.neo4j.kernel.network.state.StateMachine;
 import org.neo4j.kernel.network.state.StoreState;
+import org.neo4j.logging.Log;
 import org.neo4j.scheduler.JobScheduler;
 
 /**
@@ -21,25 +24,25 @@ public class SlaveUpdatePuller implements Runnable, Lifecycle, JobScheduler.Canc
     private ClientForData client;
     private RequestContextFactory requestContextFactory;
     private volatile boolean halted = false;
+    private LogService logging;
+    private Log log;
     public static final Serializer EMPTY_SERIALIZER = buffer -> {
     };
     public static final Deserializer<Void> VOID_DESERIALIZER = (buffer, temporaryBuffer) -> null;
 
-    public SlaveUpdatePuller(StateMachine stateMachine, ClientForData client, RequestContextFactory requestContextFactory, JobScheduler jobScheduler) {
+    public SlaveUpdatePuller(StateMachine stateMachine, ClientForData client, RequestContextFactory requestContextFactory, JobScheduler jobScheduler, LogService logging) {
         this.stateMachine = stateMachine;
         this.client = client;
         this.requestContextFactory = requestContextFactory;
         this.jobScheduler = jobScheduler;
+        this.logging = logging;
+        this.log = logging.getInternalLog(getClass());
     }
 
     @Override
     public void run() {
 
         while (!halted) {
-//                if (client.getChannel() == null) {
-//                    Thread.sleep(2000);
-//                    continue;
-//                }
             try {
                 periodicallyPullUpdates();
             } catch (Throwable e) {
@@ -51,7 +54,7 @@ public class SlaveUpdatePuller implements Runnable, Lifecycle, JobScheduler.Canc
     private void periodicallyPullUpdates() throws InterruptedException {
         checkIfNeedToPull();
         if (needToPull) {
-            System.out.println("need to pull updates");
+            log.info("need to pull updates");
             tryToPullUpdate();
         }
     }
@@ -71,7 +74,6 @@ public class SlaveUpdatePuller implements Runnable, Lifecycle, JobScheduler.Canc
         try{
             stateMachine.setStoreState(StoreState.pulling);
             RequestContext context = requestContextFactory.newRequestContext();
-//        context.setLastAppliedTransaction(stateMachine.getTransactionIdStore().getLastCommittedTransactionId());
             client.sendRequest(context, EMPTY_SERIALIZER, VOID_DESERIALIZER);
         }catch (Throwable e){
             stateMachine.setStoreState(StoreState.start);
@@ -85,7 +87,6 @@ public class SlaveUpdatePuller implements Runnable, Lifecycle, JobScheduler.Canc
 
     @Override
     public void start() throws Throwable {
-//        new Thread(this).start();
         JobScheduler.JobHandle handle = jobScheduler.schedule(JobScheduler.Groups.pullUpdates, this);
         handle.registerCancelListener(this);
     }

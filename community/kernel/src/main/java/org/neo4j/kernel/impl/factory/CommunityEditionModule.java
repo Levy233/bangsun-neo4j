@@ -216,7 +216,7 @@ public class CommunityEditionModule extends EditionModule
                     return config.get(BsClusterSettings.com_chunk_size).intValue();
                 }
             },logging.getInternalLogProvider(), Clocks.systemClock(),responsePacker);
-            SlaveUpdatePuller puller = new SlaveUpdatePuller(stateMachine,clientForData,requestContextFactory,platformModule.jobScheduler);
+            SlaveUpdatePuller puller = new SlaveUpdatePuller(stateMachine,clientForData,requestContextFactory,platformModule.jobScheduler,logging);
             life.add(responseUnpacker);
             life.add(serverForData);
             life.add(clientForData);

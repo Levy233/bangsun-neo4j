@@ -37,9 +37,10 @@ public class Client implements Lifecycle{
     }
     private HostnamePort another;
     private Configuration config;
-    private Log logging;
+    private Log log;
     private EventLoopGroup group;
     private Bootstrap b = new Bootstrap();
+    private LogService logging;
 
     public Channel getChannel() {
         return channel;
@@ -52,7 +53,8 @@ public class Client implements Lifecycle{
 
     public Client(Configuration config,LogService logging, Supplier<TransactionIdStore> storeSupplier) {
         this.config = config;
-        this.logging = logging.getInternalLogProvider().getLog(getClass());
+        this.logging = logging;
+        this.log = logging.getInternalLogProvider().getLog(getClass());
         this.storeSupplier = storeSupplier;
     }
 
@@ -82,9 +84,7 @@ public class Client implements Lifecycle{
     @Override
     public void start() throws Throwable {
         group = new NioEventLoopGroup();
-        ClientHandler handler = new ClientHandler(config.instance().toIntegerIndex(),config.me(),storeSupplier);
-//        lathc = new CountDownLatch(1);
-//        syncRequstHandler = new SyncRequstHandler(lathc);
+        ClientHandler handler = new ClientHandler(config.instance().toIntegerIndex(),config.me(),storeSupplier,logging);
         b.group(group)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.TCP_NODELAY, true)
@@ -104,17 +104,10 @@ public class Client implements Lifecycle{
                         p.addLast(new ObjectDecoder(1024 * 1024,
                                 ClassResolvers.weakCachingConcurrentResolver(this.getClass().getClassLoader())));
                         p.addLast("encoder", new ObjectEncoder());
-//                        p.addLast(new Encoder());
-//                        p.addLast(new Decoder());
-//                        p.addLast(MarshallingCodeCFactory.buildMarshallingEncoder());
-//                        p.addLast(MarshallingCodeCFactory.buildMarshallingDecoder());
                         p.addLast(handler);
-//                        p.addLast(syncRequstHandler);
                     }
                 });
         doConnect();
-
-//            new Thread(new ConnectThread()).start();
     }
 
     private void doConnect() {
@@ -122,9 +115,9 @@ public class Client implements Lifecycle{
         future.addListener((ChannelFutureListener) f -> {
             if (f.isSuccess()) {
                 channel = future.channel();
-                System.out.println("Started Tcp Client: " + another.getPort());
+                log.info("Started Tcp Client: " + another.getPort());
             } else {
-                System.out.println("Started Tcp Client Failed: " + another.getPort() + " Due to " + f.cause());
+                log.warn("Started Tcp Client Failed: " + another.getPort() + " Due to " + f.cause());
                 f.channel().eventLoop().schedule(this::doConnect, 5, TimeUnit.SECONDS);
             }
         });

@@ -35,7 +35,7 @@ public class ServerHandler extends SimpleChannelHandler{
     public void handleUpstream(final ChannelHandlerContext ctx, ChannelEvent e) throws Exception {
         if (e instanceof org.jboss.netty.handler.timeout.IdleStateEvent) {
             if (((org.jboss.netty.handler.timeout.IdleStateEvent) e).getState() == org.jboss.netty.handler.timeout.IdleState.ALL_IDLE) {
-                System.out.println("需要提醒玩家下线");
+//                System.out.println("需要提醒玩家下线");
                 //关闭会话,踢玩家下线
                 ChannelFuture write = ctx.getChannel().write("hi  time out, you will close");
                 write.addListener(future -> ctx.getChannel().close());
@@ -47,11 +47,11 @@ public class ServerHandler extends SimpleChannelHandler{
 
     @Override
     public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
-        System.out.println("Server: channelActive: " + ctx.getChannel().getRemoteAddress());
-        System.out.println(aliveSlaves.getSlaves().size());
+        logging.info("Server: channelActive: Local: " + ctx.getChannel().getLocalAddress()+" from: "+ctx.getChannel().getRemoteAddress());
+        logging.info("HeartBeat started");
         try (Slave slave = aliveSlaves.search(ctx)) {
             if (slave != null) {
-                System.out.println("Server: " + slave.getCtx().getChannel().getRemoteAddress());
+//                System.out.println("Server: " + slave.getCtx().getChannel().getRemoteAddress());
             } else {
                 HostnamePort hostnamePort = new HostnamePort(ctx.getChannel().getRemoteAddress().toString().replace("/", ""));
                 Slave slave1 = new Slave(ctx, hostnamePort);
@@ -63,10 +63,10 @@ public class ServerHandler extends SimpleChannelHandler{
     @Override
     public void messageReceived(ChannelHandlerContext ctx, MessageEvent event) throws Exception {
         Object msg = event.getMessage();
-        System.out.println("Server: channelRead " + msg.toString());
+        logging.debug("Server: channelRead " + msg.toString());
         if (msg instanceof HeartBeatMessage) {
             stateMachine.handle((HeartBeatMessage) msg);
-            ctx.getChannel().write(new HeartBeatResponse("receive heartbeat msg"));
+//            ctx.getChannel().write(new HeartBeatResponse("receive heartbeat msg"));
         }
     }
 }

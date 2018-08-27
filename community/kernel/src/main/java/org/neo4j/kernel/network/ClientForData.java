@@ -338,7 +338,6 @@ public class ClientForData extends LifecycleAdapter implements ChannelPipelineFa
             try (PhysicalTransactionCursor<ReadableClosablePositionAwareChannel> cursor =
                          new PhysicalTransactionCursor<>(channel, entryReader)) {
                 while (cursor.next() && !visitor.visit(cursor.get())) {
-                    System.out.println("1111");
                 }
             }
         };

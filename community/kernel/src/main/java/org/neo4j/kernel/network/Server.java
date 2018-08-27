@@ -17,6 +17,7 @@ import org.neo4j.kernel.lifecycle.Lifecycle;
 import org.neo4j.kernel.network.handle.ServerHandler;
 import org.neo4j.kernel.network.state.StateMachine;
 
+import org.neo4j.logging.Log;
 import org.neo4j.logging.LogProvider;
 import org.neo4j.time.Clocks;
 
@@ -49,12 +50,14 @@ public class Server implements Lifecycle {
     private ResponsePacker responsePacker;
     private ChannelGroup channelGroup  = new DefaultChannelGroup();
     private ServerBootstrap bootstrap;
+    private Log log;
 
     public Server(Configuration config, LogService logging, StateMachine stateMachine, ResponsePacker responsePacker) {
         this.config = config;
         this.logging = logging.getInternalLogProvider();
         this.stateMachine = stateMachine;
         this.responsePacker = responsePacker;
+        this.log = logging.getInternalLog(getClass());
     }
 
     @Override
@@ -95,48 +98,8 @@ public class Server implements Lifecycle {
             }
         });
         Channel channel = bootstrap.bind(new InetSocketAddress(config.me().getPort()));
-
+        log.info("HeartBeat server started and binded to port: "+ config.me().getPort());
         channelGroup.add( channel );
-//        bossGroup = new NioEventLoopGroup(1);
-//        workerGroup = new NioEventLoopGroup();
-//        ServerHandler handler = new ServerHandler(aliveSlaves, config.lost_time_out(), stateMachine, logging, responsePacker);
-//        serverBootstrap = new ServerBootstrap().group(bossGroup, workerGroup)
-//                .channel(NioServerSocketChannel.class)
-//                .handler(new LoggingHandler(LogLevel.INFO))
-//                .localAddress(new InetSocketAddress(config.me().getPort()))
-//                .childHandler(new ChannelInitializer<SocketChannel>() {
-//                    protected void initChannel(SocketChannel ch) throws Exception {
-//                        ch.pipeline().addLast(new IdleStateHandler(5, 0, 0, TimeUnit.SECONDS));
-//                        ch.pipeline().addLast(new ObjectDecoder(1024 * 1024,
-//                                ClassResolvers.weakCachingConcurrentResolver(this.getClass().getClassLoader())));
-//                        ch.pipeline().addLast("encoder", new ObjectEncoder());
-////                        ch.pipeline().addLast(new Decoder());
-////                        ch.pipeline().addLast(new Encoder());
-////                        ch.pipeline().addLast(MarshallingCodeCFactory.buildMarshallingEncoder());
-////                        ch.pipeline().addLast(MarshallingCodeCFactory.buildMarshallingDecoder());
-//                        ch.pipeline().addLast(handler);
-//                    }
-//                }).option(ChannelOption.SO_BACKLOG, 128)
-//                .childOption(ChannelOption.SO_KEEPALIVE, true);
-//        doBind();
-//            ChannelFuture future = serverBootstrap.bind(config.me().getPort()).sync();
-//            System.out.println("Server start listen at " + config.me().getPort());
-//            future.channel().closeFuture().sync();
-
     }
 
-//    private void doBind() {
-//        serverBootstrap.bind(config.me().getPort()).addListener((ChannelFutureListener) f -> {
-//            if (f.isSuccess()) {
-//                System.out.println("Started Tcp Server: " + config.me().getPort());
-//            } else {
-//                System.out.println("Started Tcp Server Failed: " + config.me().getPort());
-//                f.channel().eventLoop().schedule(this::doBind, 5, TimeUnit.SECONDS);
-//            }
-//        });
-//    }
-
-//    public static void main(String[] args) throws Throwable {
-//        new Server().start();
-//    }
 }

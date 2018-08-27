@@ -71,10 +71,7 @@ public class ServerForData extends SimpleChannelHandler implements Lifecycle,Cha
     private ScheduledExecutorService silentChannelExecutor;
     private final IdleChannelReaper connectedSlaveChannels;
     private final Map<Channel, PartialRequest> partialRequests = new ConcurrentHashMap<>();
-    public static final ObjectSerializer<Void> VOID_SERIALIZER = new ObjectSerializer<Void>() {
-        @Override
-        public void write(Void responseObject, ChannelBuffer result) throws IOException {
-        }
+    public static final ObjectSerializer<Void> VOID_SERIALIZER = (responseObject, result) -> {
     };
 
     public ServerForData(Configuration config,LogProvider logProvider, Clock clock,ResponsePacker responsePacker){
@@ -125,6 +122,7 @@ public class ServerForData extends SimpleChannelHandler implements Lifecycle,Cha
     @Override
     public void channelOpen( ChannelHandlerContext ctx, ChannelStateEvent e ) throws Exception
     {
+        logging.info("Server: channelOpened: Local address: "+ ctx.getChannel().getLocalAddress()+" Remote address: "+ ctx.getChannel().getRemoteAddress());
         channelGroup.add( e.getChannel() );
     }
 
@@ -309,14 +307,14 @@ public class ServerForData extends SimpleChannelHandler implements Lifecycle,Cha
         return pipeline;
     }
 
-    public static void addLengthFieldPipes( ChannelPipeline pipeline, int frameLength )
+    private static void addLengthFieldPipes(ChannelPipeline pipeline, int frameLength)
     {
         pipeline.addLast( "frameDecoder",
                 new LengthFieldBasedFrameDecoder( frameLength + 4, 0, 4, 0, 4 ) );
         pipeline.addLast( "frameEncoder", new LengthFieldPrepender( 4 ) );
     }
 
-    public static void assertChunkSizeIsWithinFrameSize( int chunkSize, int frameLength )
+    private static void assertChunkSizeIsWithinFrameSize(int chunkSize, int frameLength)
     {
         if ( chunkSize > frameLength )
         {
