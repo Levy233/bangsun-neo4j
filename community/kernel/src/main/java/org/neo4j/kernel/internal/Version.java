@@ -146,5 +146,5 @@ public class Version extends Service
     static final String KERNEL_ARTIFACT_ID = "neo4j-kernel";
     private static final Version KERNEL_VERSION = new Version( KERNEL_ARTIFACT_ID,
 //            Version.class.getPackage().getImplementationVersion() );
-    "3.4" );
+    "3.4.6" );
 }

@@ -35,8 +35,6 @@ public class ServerHandler extends SimpleChannelHandler{
     public void handleUpstream(final ChannelHandlerContext ctx, ChannelEvent e) throws Exception {
         if (e instanceof org.jboss.netty.handler.timeout.IdleStateEvent) {
             if (((org.jboss.netty.handler.timeout.IdleStateEvent) e).getState() == org.jboss.netty.handler.timeout.IdleState.ALL_IDLE) {
-//                System.out.println("需要提醒玩家下线");
-                //关闭会话,踢玩家下线
                 ChannelFuture write = ctx.getChannel().write("hi  time out, you will close");
                 write.addListener(future -> ctx.getChannel().close());
             }
