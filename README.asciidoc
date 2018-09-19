@@ -1,7 +1,25 @@
-= Neo4j: Graphs for Everyone bangsun neo4j for community ha=
+= Neo4j: Graphs for Everyone bangsun neo4j for community ha =
 https://neo4j.com[Neo4j] is the world's leading Graph Database. It is a high performance graph store with all the features expected of a mature and robust database, like a friendly query language and ACID transactions. The programmer works with a flexible network structure of nodes and relationships rather than static tables -- yet enjoys all the benefits of enterprise-quality database. For many applications, Neo4j offers orders of magnitude performance benefits compared to relational DBs.
 
 Learn more on the https://neo4j.com[Neo4j website].
+== Using Bangsun Neo4j ==
+master host:
+bs.is_cluster=true   #ha mode
+bs.cluster_hosts=10.100.1.146:5050,10.100.1.147:5050  #ip and port for heartbeat
+bs.my_host=10.100.1.146:5050    #ip and port of this host
+bs.cluster_data_hosts=10.100.1.146:6060,10.100.1.147:6060  #ip and port for data transfer
+bs.my_data_host=10.100.1.146:6060   #ip and port of this port
+bs.lost_time_out=3     #lost time of heartbeat
+bs.instance_id=1       #host instance id
+
+backup host:
+bs.is_cluster=true
+bs.cluster_hosts=10.100.1.146:5050,10.100.1.147:5050
+bs.my_host=10.100.1. 147:5050
+bs.cluster_data_hosts=10.100.1.146:6060,10.100.1.147:6060
+bs.my_data_host=10.100.1. 147:6060
+bs.lost_time_out=3
+bs.instance_id=2
 
 == Using Neo4j ==
 
