@@ -137,7 +137,7 @@ public class ServerForData extends SimpleChannelHandler implements Lifecycle,Cha
         }
         catch ( Throwable e )
         {
-//            msgLog.error( "Error handling request", e );
+            logging.error( "Error handling request", e );
 
             // Attempt to reply to the client
             ChunkingChannelBuffer buffer = newChunkingBuffer( event.getChannel() );
