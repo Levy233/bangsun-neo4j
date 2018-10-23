@@ -46,7 +46,7 @@ public class SlaveUpdatePuller implements Runnable, Lifecycle, JobScheduler.Canc
             try {
                 periodicallyPullUpdates();
             } catch (Throwable e) {
-                e.printStackTrace();
+                log.error("pull update fail due to {}",e.getMessage());
             }
         }
     }
