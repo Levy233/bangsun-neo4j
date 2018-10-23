@@ -158,7 +158,7 @@ public class ServerForData extends SimpleChannelHandler implements Lifecycle,Cha
             out.close();
             buffer.writeBytes(bytes.toByteArray());
             buffer.done();
-            logging.info("");
+            logging.info("Sended cause of error to client");
         } catch (IOException e) {
             logging.warn("Couldn't send cause of error to client", exception);
         }
@@ -387,7 +387,6 @@ public class ServerForData extends SimpleChannelHandler implements Lifecycle,Cha
 
         TargetCaller(Channel channel, RequestContext context,
                      ChunkingChannelBuffer targetBuffer, ChannelBuffer bufferToReadFrom) {
-//            this.type = type;
             this.channel = channel;
             this.context = context;
             this.targetBuffer = targetBuffer;
@@ -397,20 +396,15 @@ public class ServerForData extends SimpleChannelHandler implements Lifecycle,Cha
         @Override
         @SuppressWarnings("unchecked")
         public void run() {
-//            requestMonitor.beginRequest( channel.getRemoteAddress(), type, context );
             Response<Void> response = null;
-//            Throwable failure = null;
             try {
                 unmapSlave(channel);
                 response = packTransactionStreamResponse(context, null);
-//                ObjectSerializer serializer = VOID_SERIALIZER;
                 VOID_SERIALIZER.write(response.response(), targetBuffer);
                 writeStoreId(response.getStoreId(), targetBuffer);
                 response.accept(this);
                 targetBuffer.done();
-//                responseWritten(channel, context);
             } catch (Throwable e) {
-//                failure = e;
                 targetBuffer.clear(true);
                 writeFailureResponse(e, targetBuffer);
                 tryToFinishOffChannel(channel, context);
@@ -419,7 +413,6 @@ public class ServerForData extends SimpleChannelHandler implements Lifecycle,Cha
                 if (response != null) {
                     response.close();
                 }
-//                requestMonitor.endRequest( failure );
             }
         }
 
