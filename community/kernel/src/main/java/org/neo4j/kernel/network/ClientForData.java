@@ -70,6 +70,7 @@ public class ClientForData extends LifecycleAdapter implements ChannelPipelineFa
         this.readTimeout = readTimeOut;
         this.entryReader = entryReader;
         this.responseUnpacker = unpacker;
+        this.comExceptionHandler = getNoOpComExceptionHandler();
 //        ProtocolVersion protocolVersion = getProtocolVersion();
     }
 
@@ -178,6 +179,19 @@ public class ClientForData extends LifecycleAdapter implements ChannelPipelineFa
         return (BlockingReadHandler<ChannelBuffer>) pipeline.get(BLOCKING_CHANNEL_HANDLER_NAME);
     }
 
+    private ComExceptionHandler getNoOpComExceptionHandler()
+    {
+        return exception ->
+        {
+            if ( ComException.TRACE_HA_CONNECTIVITY )
+            {
+                String noOpComExceptionHandler = "NoOpComExceptionHandler";
+                //noinspection ThrowableResultOfMethodCallIgnored
+                traceComException( exception, noOpComExceptionHandler );
+            }
+        };
+    }
+
     private ComException traceComException(ComException exception, String tracePoint) {
         return exception.traceComException(logging, tracePoint);
     }
@@ -205,25 +219,7 @@ public class ClientForData extends LifecycleAdapter implements ChannelPipelineFa
             Response<R> response = deserializeResponse(extractBlockingReadHandler(channelContext),
                     channelContext.input(), readTimeout, deserializer, resourcePoolReleaser,
                     entryReader.get());
-
-//            if ( type.responseShouldBeUnpacked() )
-//            {
             responseUnpacker.unpackResponse(response, txHandler);
-//            }
-
-//            if ( shouldCheckStoreId( type ) )
-//            {
-            // specificStoreId is there as a workaround for then the graphDb isn't initialized yet
-//                if ( specificStoreId != null )
-//                {
-//                    assertCorrectStoreId( response.getStoreId(), specificStoreId );
-//                }
-//                else
-//                {
-//                    assertCorrectStoreId( response.getStoreId(), storeId );
-//                }
-//            }
-
             return response;
         } catch (ComException e) {
             failure = e;
