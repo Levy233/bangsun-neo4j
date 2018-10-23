@@ -4,6 +4,7 @@ https://neo4j.com[Neo4j] is the world's leading Graph Database. It is a high per
 Learn more on the https://neo4j.com[Neo4j website].
 
 == Using Bangsun Neo4j ==
+----
 *master host:*
   bs.is_cluster=true   #ha mode
   bs.cluster_hosts=10.100.1.146:5050,10.100.1.147:5050  #ip and port for heartbeat
@@ -21,7 +22,7 @@ Learn more on the https://neo4j.com[Neo4j website].
   bs.my_data_host=10.100.1. 147:6060
   bs.lost_time_out=3
   bs.instance_id=2
-
+----
 == Using Neo4j ==
 
 Neo4j is available both as a standalone server, or an embeddable component. You can https://neo4j.com/download/[download] or http://console.neo4j.org[try online].
